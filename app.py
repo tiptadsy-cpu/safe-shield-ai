@@ -1,17 +1,25 @@
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel
 from presidio_analyzer import AnalyzerEngine
+from presidio_analyzer.nlp_engine import NlpEngineProvider
 from presidio_anonymizer import AnonymizerEngine
 from langchain_anthropic import ChatAnthropic
 from langchain_core.prompts import ChatPromptTemplate
 import os
 import smtplib
 from email.message import EmailMessage
-
 app = FastAPI(title="Safe Shield AI API")
 
-# Initialize Presidio Engines standardly
-analyzer = AnalyzerEngine()
+# Initialize Presidio Engines with the small spaCy model (en_core_web_lg is
+# 400MB+ and OOM-kills low-memory instances like Render's 512Mi free tier)
+nlp_configuration = {
+    "nlp_engine_name": "spacy",
+    "models": [{"lang_code": "en", "model_name": "en_core_web_sm"}],
+}
+provider = NlpEngineProvider(nlp_configuration=nlp_configuration)
+nlp_engine = provider.create_engine()
+
+analyzer = AnalyzerEngine(nlp_engine=nlp_engine)
 anonymizer = AnonymizerEngine()
 
 def sanitize_input(text: str) -> str:
