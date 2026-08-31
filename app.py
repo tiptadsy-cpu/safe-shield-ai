@@ -5,7 +5,8 @@ from presidio_anonymizer import AnonymizerEngine
 from langchain_anthropic import ChatAnthropic
 from langchain_core.prompts import ChatPromptTemplate
 import os
-from datetime import datetime
+import smtplib
+from email.message import EmailMessage
 
 app = FastAPI(title="Safe Shield AI API")
 
@@ -21,25 +22,36 @@ def sanitize_input(text: str) -> str:
     )
     return anonymizer.anonymize(text=text, analyzer_results=results).text
 
+def send_instant_notification(briefing_text: str):
+    # Fetch email credentials from Render environment variables
+    smtp_server = "smtp.gmail.com"  # Or your email provider's SMTP server
+    smtp_port = 465
+    sender_email = os.getenv("ALERT_SENDER_EMAIL")
+    sender_password = os.getenv("ALERT_SENDER_PASSWORD")
+    recipient_email = os.getenv("ALERT_RECIPIENT_EMAIL")
+
+    if not sender_email or not sender_password or not recipient_email:
+        return  # Skip if email alerts aren't configured yet
+
+    msg = EmailMessage()
+    msg.set_content(f"New client triage submission received. Instant Briefing:\n\n{briefing_text}")
+    msg["Subject"] = "🚨 URGENT: New Safe Shield Triage Briefing"
+    msg["From"] = sender_email
+    msg["To"] = recipient_email
+
+    try:
+        with smtplib.SMTP_SSL(smtp_server, smtp_port) as server:
+            server.login(sender_email, sender_password)
+            server.send_message(msg)
+    except Exception as e:
+        print(f"Failed to send email alert: {e}")
+
 class TriageRequest(BaseModel):
     message: str
 
 @app.get("/")
 def read_root():
     return {"status": "Safe Shield API Active"}
-
-@app.get("/api/v1/morning-brief")
-def get_morning_brief(x_api_key: str = Header(None)):
-    # Secure this endpoint so only your team can view the brief
-    if not x_api_key:
-        raise HTTPException(status_code=401, detail="API Key missing")
-    
-    # Read the saved briefings file if it exists
-    if os.path.exists("morning_briefings.txt"):
-        with open("morning_briefings.txt", "r", encoding="utf-8") as f:
-            content = f.read()
-        return {"morning_brief": content}
-    return {"morning_brief": "No overnight submissions recorded yet."}
 
 @app.post("/api/v1/triage")
 def run_triage(data: TriageRequest, x_api_key: str = Header(None)):
@@ -67,12 +79,8 @@ def run_triage(data: TriageRequest, x_api_key: str = Header(None)):
     chain = prompt | llm
     response = chain.invoke({"text": clean_text})
     
-    # AUTOMATICALLY SAVE TO MORNING BRIEF FILE
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    log_entry = f"\n--- Submission at {timestamp} ---\n{response.content}\n"
-    
-    with open("morning_briefings.txt", "a", encoding="utf-8") as f:
-        f.write(log_entry)
+    # INSTANTLY TRIGGER NOTIFICATION
+    send_instant_notification(response.content)
     
     return {
         "status": "success",
