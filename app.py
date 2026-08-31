@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel
-from presidio_analyzer import AnalyzerEngine
+from presidio_analyzer import AnalyzerEngine, NlpEngineProvider
 from presidio_anonymizer import AnonymizerEngine
 from langchain_anthropic import ChatAnthropic
 from langchain_core.prompts import ChatPromptTemplate
@@ -10,8 +10,15 @@ from email.message import EmailMessage
 
 app = FastAPI(title="Safe Shield AI API")
 
-# Initialize Presidio PII Engines
-analyzer = AnalyzerEngine()
+# Explicitly configure Presidio to use the SMALL spacy model to prevent memory crashes
+configuration = {
+    "nlp_engine_name": "spacy",
+    "models": [{"lang_code": "en", "model_name": "en_core_web_sm"}],
+}
+provider = NlpEngineProvider(nlp_configuration=configuration)
+nlp_engine = provider.create_engine()
+
+analyzer = AnalyzerEngine(nlp_engine=nlp_engine, supported_languages=["en"])
 anonymizer = AnonymizerEngine()
 
 def sanitize_input(text: str) -> str:
@@ -23,15 +30,14 @@ def sanitize_input(text: str) -> str:
     return anonymizer.anonymize(text=text, analyzer_results=results).text
 
 def send_instant_notification(briefing_text: str):
-    # Fetch email credentials from Render environment variables
-    smtp_server = "smtp.gmail.com"  # Or your email provider's SMTP server
+    smtp_server = "smtp.gmail.com"
     smtp_port = 465
     sender_email = os.getenv("ALERT_SENDER_EMAIL")
     sender_password = os.getenv("ALERT_SENDER_PASSWORD")
     recipient_email = os.getenv("ALERT_RECIPIENT_EMAIL")
 
     if not sender_email or not sender_password or not recipient_email:
-        return  # Skip if email alerts aren't configured yet
+        return
 
     msg = EmailMessage()
     msg.set_content(f"New client triage submission received. Instant Briefing:\n\n{briefing_text}")
@@ -79,7 +85,6 @@ def run_triage(data: TriageRequest, x_api_key: str = Header(None)):
     chain = prompt | llm
     response = chain.invoke({"text": clean_text})
     
-    # INSTANTLY TRIGGER NOTIFICATION
     send_instant_notification(response.content)
     
     return {
