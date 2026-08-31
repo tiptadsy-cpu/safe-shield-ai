@@ -61,7 +61,7 @@ def run_triage(data: TriageRequest, x_api_key: str = Header(None)):
     if not anthropic_key:
         raise HTTPException(status_code=500, detail="Anthropic API Key not configured on server")
         
-    llm = ChatAnthropic(model="claude-3-5-sonnet-20241022", api_key=anthropic_key, temperature=0)
+    llm = ChatAnthropic(model="claude-sonnet-4-6", api_key=anthropic_key, temperature=0)
     
     clean_text = sanitize_input(data.message)
     
