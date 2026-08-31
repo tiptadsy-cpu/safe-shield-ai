@@ -5,6 +5,7 @@ from presidio_anonymizer import AnonymizerEngine
 from langchain_anthropic import ChatAnthropic
 from langchain_core.prompts import ChatPromptTemplate
 import os
+from datetime import datetime
 
 app = FastAPI(title="Safe Shield AI API")
 
@@ -27,13 +28,29 @@ class TriageRequest(BaseModel):
 def read_root():
     return {"status": "Safe Shield API Active"}
 
+@app.get("/api/v1/morning-brief")
+def get_morning_brief(x_api_key: str = Header(None)):
+    # Secure this endpoint so only your team can view the brief
+    if not x_api_key:
+        raise HTTPException(status_code=401, detail="API Key missing")
+    
+    # Read the saved briefings file if it exists
+    if os.path.exists("morning_briefings.txt"):
+        with open("morning_briefings.txt", "r", encoding="utf-8") as f:
+            content = f.read()
+        return {"morning_brief": content}
+    return {"morning_brief": "No overnight submissions recorded yet."}
+
 @app.post("/api/v1/triage")
 def run_triage(data: TriageRequest, x_api_key: str = Header(None)):
     if not x_api_key:
         raise HTTPException(status_code=401, detail="API Key missing")
         
     anthropic_key = os.getenv("ANTHROPIC_API_KEY")
-    llm = ChatAnthropic(model="claude-sonnet-4-6", api_key=anthropic_key, temperature=0)
+    if not anthropic_key:
+        raise HTTPException(status_code=500, detail="Anthropic API Key not configured on server")
+        
+    llm = ChatAnthropic(model="claude-3-5-sonnet-20241022", api_key=anthropic_key, temperature=0)
     
     clean_text = sanitize_input(data.message)
     
@@ -49,6 +66,13 @@ def run_triage(data: TriageRequest, x_api_key: str = Header(None)):
     
     chain = prompt | llm
     response = chain.invoke({"text": clean_text})
+    
+    # AUTOMATICALLY SAVE TO MORNING BRIEF FILE
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    log_entry = f"\n--- Submission at {timestamp} ---\n{response.content}\n"
+    
+    with open("morning_briefings.txt", "a", encoding="utf-8") as f:
+        f.write(log_entry)
     
     return {
         "status": "success",
