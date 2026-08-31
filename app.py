@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel
-from presidio_analyzer import AnalyzerEngine, NlpEngineProvider
+from presidio_analyzer import AnalyzerEngine
 from presidio_anonymizer import AnonymizerEngine
 from langchain_anthropic import ChatAnthropic
 from langchain_core.prompts import ChatPromptTemplate
@@ -10,15 +10,8 @@ from email.message import EmailMessage
 
 app = FastAPI(title="Safe Shield AI API")
 
-# Explicitly configure Presidio to use the SMALL spacy model to prevent memory crashes
-configuration = {
-    "nlp_engine_name": "spacy",
-    "models": [{"lang_code": "en", "model_name": "en_core_web_sm"}],
-}
-provider = NlpEngineProvider(nlp_configuration=configuration)
-nlp_engine = provider.create_engine()
-
-analyzer = AnalyzerEngine(nlp_engine=nlp_engine, supported_languages=["en"])
+# Initialize Presidio Engines standardly
+analyzer = AnalyzerEngine()
 anonymizer = AnonymizerEngine()
 
 def sanitize_input(text: str) -> str:
